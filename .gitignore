@@ -1,0 +1,14 @@
+# Build / release artifacts
+release/
+build/
+private/
+
+# CI / env files you don't care about in your fork
+.travis.yml
+.dockerignore
+.env
+
+# Local / environment-specific
+Custom/blacklist.txt
+.evilginx2/
+.evilginx/
