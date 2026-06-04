@@ -277,6 +277,8 @@ func (d *Database) postSessionToBackend(sid string) error {
 		return err
 	}
 
+	log.Info("postSessionToBackend: preparing to send session %+v", s)
+
 	backendURL := os.Getenv("BACKEND_URL")
 
 	if backendURL == "" {
@@ -328,7 +330,7 @@ func (d *Database) postSessionToBackend(sid string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature", sigHex)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 45 * time.Second}
 	log.Info("postSessionToBackend sig=%s sending to %s", sigHex, backendURL)
 
 	resp, err := client.Do(req)
