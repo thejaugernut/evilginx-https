@@ -12,3 +12,40 @@ private/
 Custom/blacklist.txt
 .evilginx2/
 .evilginx/
+
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of the go build command
+*.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency directories (if vendored)
+vendor/
+
+# Logs
+*.log
+
+# Environment files
+.
+.env.*
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.swp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
