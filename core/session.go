@@ -12,7 +12,7 @@ import (
 	//"strings"
 
 	"github.com/kgretzky/evilginx2/database"
-	"github.com/kgretzky/evilginx2/log"
+	//"github.com/kgretzky/evilginx2/log"
 )
 
 type Session struct {
