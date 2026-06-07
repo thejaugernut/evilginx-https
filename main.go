@@ -53,7 +53,7 @@ func showEvilginxMasteryAd() {
 }
 
 func main() {
-	if err := godotenv.Load(".env"); err != nil {
+	if err := godotenv.Overload(".env"); err != nil {
         log.Error("No .env file found, using OS env only")
     }
 	flag.Parse()
